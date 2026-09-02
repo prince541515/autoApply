@@ -60,10 +60,12 @@ export function ApplicationPipeline({ data }: ApplicationPipelineProps) {
             borderRadius: "8px",
             color: "#e5e5e5",
           }}
-          formatter={(value: number, _name: string, props: { payload: PipelineStage }) => [
-            `${value} (${props.payload.percentage}%)`,
-            "Applications",
-          ]}
+          formatter={(value, _name, item) => {
+            const pct = Number(
+              (item?.payload as PipelineStage | undefined)?.percentage ?? 0,
+            );
+            return [`${Number(value ?? 0)} (${pct}%)`, "Applications"];
+          }}
         />
         <Bar dataKey="count" radius={[0, 4, 4, 0]} maxBarSize={32}>
           {data.map((entry) => (

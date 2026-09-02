@@ -319,6 +319,7 @@ export default function AdminCandidatesPage() {
             <Select
               value={planFilter}
               onValueChange={(v) => {
+                if (v == null) return;
                 setPlanFilter(v);
                 setPage(0);
               }}
@@ -335,6 +336,7 @@ export default function AdminCandidatesPage() {
             <Select
               value={statusFilter}
               onValueChange={(v) => {
+                if (v == null) return;
                 setStatusFilter(v);
                 setPage(0);
               }}

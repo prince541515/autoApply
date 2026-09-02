@@ -55,10 +55,12 @@ export function PortalDistribution({ data }: PortalDistributionProps) {
             borderRadius: "8px",
             color: "#e5e5e5",
           }}
-          formatter={(value: number, name: string, props: { payload: PortalDistributionType }) => [
-            `${value} (${props.payload.percentage}%)`,
-            name,
-          ]}
+          formatter={(value, name, item) => {
+            const pct = Number(
+              (item?.payload as PortalDistributionType | undefined)?.percentage ?? 0,
+            );
+            return [`${Number(value ?? 0)} (${pct}%)`, String(name ?? "")];
+          }}
         />
         <Legend
           formatter={(value: string) => (

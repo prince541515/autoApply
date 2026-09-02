@@ -578,7 +578,7 @@ export default function CandidateJobsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Select value={postedWithin} onValueChange={setPostedWithin}>
+          <Select value={postedWithin} onValueChange={(v) => v != null && setPostedWithin(v)}>
             <SelectTrigger className="w-[160px]">
               <SelectValue placeholder="Posted within">
                 {POSTED_WITHIN_OPTIONS.find((opt) => opt.value === postedWithin)
@@ -665,6 +665,7 @@ export default function CandidateJobsPage() {
             <Select
               value={portalFilter}
               onValueChange={(v) => {
+                if (v == null) return;
                 setPortalFilter(v);
                 setPage(0);
               }}
@@ -706,7 +707,7 @@ export default function CandidateJobsPage() {
           ) : error && jobs.length === 0 ? (
             <div className="flex h-40 flex-col items-center justify-center gap-2 text-center">
               <p className="text-sm text-destructive">{error}</p>
-              <Button variant="outline" size="sm" onClick={fetchJobs}>
+              <Button variant="outline" size="sm" onClick={() => void fetchJobs()}>
                 Retry
               </Button>
             </div>
@@ -727,7 +728,9 @@ export default function CandidateJobsPage() {
                   </span>
                   <Select
                     onValueChange={(value) => {
-                      if (value) void handleBulkStatus(value);
+                      if (typeof value === "string" && value) {
+                        void handleBulkStatus(value);
+                      }
                     }}
                     disabled={bulkUpdating}
                   >

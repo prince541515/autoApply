@@ -57,14 +57,14 @@ export function ApplicationsOverTime({ data }: ApplicationsOverTimeProps) {
             borderRadius: "8px",
             color: "#e5e5e5",
           }}
-          labelFormatter={(label: string) =>
-            new Date(label).toLocaleDateString("en-US", {
+          labelFormatter={(label) =>
+            new Date(String(label ?? "")).toLocaleDateString("en-US", {
               month: "short",
               day: "numeric",
               year: "numeric",
             })
           }
-          formatter={(value: number) => [value, "Applications"]}
+          formatter={(value) => [Number(value ?? 0), "Applications"]}
         />
         <Area
           type="monotone"

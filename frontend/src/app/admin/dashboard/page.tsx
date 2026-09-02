@@ -257,13 +257,16 @@ export default function AdminDashboardPage() {
                       borderRadius: "8px",
                       color: "#e5e5e5",
                     }}
-                    formatter={(value: number, _name: string, props: { payload: { total: number } }) => [
-                      `${value}% (${props.payload.total} total)`,
-                      "Success Rate",
-                    ]}
-                    labelFormatter={(label: string) =>
-                      label.charAt(0).toUpperCase() + label.slice(1)
-                    }
+                    formatter={(value, _name, item) => {
+                      const total = Number(
+                        (item?.payload as { total?: number } | undefined)?.total ?? 0,
+                      );
+                      return [`${Number(value ?? 0)}% (${total} total)`, "Success Rate"];
+                    }}
+                    labelFormatter={(label) => {
+                      const text = String(label ?? "");
+                      return text ? text.charAt(0).toUpperCase() + text.slice(1) : "";
+                    }}
                   />
                   <Bar
                     dataKey="success_rate"

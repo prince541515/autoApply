@@ -222,6 +222,7 @@ export default function PreferencesPage() {
               <Select
                 value={country}
                 onValueChange={(value) => {
+                  if (value == null) return;
                   setCountry(value);
                   setStates([]);
                 }}

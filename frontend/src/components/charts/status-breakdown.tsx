@@ -60,8 +60,11 @@ export function StatusBreakdownChart({ data }: StatusBreakdownProps) {
             borderRadius: "8px",
             color: "#e5e5e5",
           }}
-          formatter={(value: number) => [value, "Applications"]}
-          labelFormatter={(label: string) => label.charAt(0).toUpperCase() + label.slice(1)}
+          formatter={(value) => [Number(value ?? 0), "Applications"]}
+          labelFormatter={(label) => {
+            const text = String(label ?? "");
+            return text ? text.charAt(0).toUpperCase() + text.slice(1) : "";
+          }}
         />
         <Bar dataKey="count" radius={[4, 4, 0, 0]} maxBarSize={48}>
           {data.map((entry) => (

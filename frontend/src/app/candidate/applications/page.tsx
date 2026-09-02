@@ -259,6 +259,7 @@ export default function CandidateApplicationsPage() {
             <Select
               value={portalFilter || "all"}
               onValueChange={(v) => {
+                if (v == null) return;
                 setPortalFilter(v === "all" ? "" : v);
                 setPage(1);
               }}

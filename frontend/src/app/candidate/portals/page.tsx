@@ -159,7 +159,7 @@ export default function PortalsPage() {
     }
   };
 
-  const handleDisconnect = async (id: number) => {
+  const handleDisconnect = async (id: string) => {
     try {
       await api.delete(`/portals/${id}`);
       await fetchConnections();
