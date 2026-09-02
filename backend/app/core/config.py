@@ -46,9 +46,20 @@ class Settings(BaseSettings):
     def cors_origin_list(self) -> list[str]:
         origins = [item.strip().rstrip("/") for item in self.CORS_ORIGINS.split(",") if item.strip()]
         app = self.APP_URL.strip().rstrip("/")
-        if app and app not in origins:
-            origins.append(app)
+        extras = (
+            app,
+            "http://localhost:3000",
+            "https://autoapply.doptonin.online",
+            "https://www.autoapply.doptonin.online",
+        )
+        for origin in extras:
+            if origin and origin not in origins and origin.startswith(("http://", "https://")):
+                origins.append(origin)
         return origins
+
+    @property
+    def cors_origin_regex(self) -> str:
+        return r"https://([a-z0-9-]+\.)?doptonin\.online|https://[\w.-]+\.vercel\.app"
 
 
 settings = Settings()
