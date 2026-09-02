@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <defs>
+    <linearGradient id="aa-tile" x1="16" y1="0" x2="16" y2="32" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1C1C22"/>
+      <stop offset="1" stop-color="#0B0B0D"/>
+    </linearGradient>
+    <linearGradient id="aa-bolt" x1="10" y1="5" x2="22" y2="27" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F7E7C4"/>
+      <stop offset="0.45" stop-color="#E0C07A"/>
+      <stop offset="1" stop-color="#B8893A"/>
+    </linearGradient>
+  </defs>
+  <rect x="0.6" y="0.6" width="30.8" height="30.8" rx="8" fill="url(#aa-tile)" stroke="#C4A574" stroke-opacity="0.35" stroke-width="1.2"/>
+  <path
+    fill="url(#aa-bolt)"
+    d="M11.05 16.85a1.05 1.05 0 0 1-.82-1.71l8.66-8.92a.52.52 0 0 1 .9.48l-1.68 5.27a1.05 1.05 0 0 0 1.01 1.38h6.12a1.05 1.05 0 0 1 .82 1.71l-8.66 8.92a.52.52 0 0 1-.9-.48l1.68-5.27a1.05 1.05 0 0 0-1.01-1.38h-6.12Z"
+  />
+</svg>
