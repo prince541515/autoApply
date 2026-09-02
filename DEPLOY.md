@@ -61,7 +61,11 @@ Do **not** commit `.env` or `.env.local`.
 5. Confirm **Healthcheck path** is `/health` (set in `backend/railway.toml`).
 6. Deploy. Open `https://<api-domain>/health` — you should see `{"ok":true}`.
 
-RAM: give the API at least **1 GB**. Playwright Chromium is bundled for Auto-Apply.
+Leave **Custom start command** empty for this API service. The Dockerfile already starts uvicorn.
+
+The image does **not** bundle Chromium (that step was blowing Railway trial builds). HTTP scrape still works. Portal login that needs a real browser can be added later on a larger plan.
+
+RAM: **512 MB–1 GB** for the API.
 
 ---
 
