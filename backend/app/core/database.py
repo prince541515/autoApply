@@ -14,6 +14,7 @@ if _is_neon_pooler:
     _connect_args["statement_cache_size"] = 0
 if database_needs_ssl(settings.DATABASE_URL):
     _connect_args["ssl"] = True
+_connect_args["timeout"] = 10
 
 engine = create_async_engine(
     settings.DATABASE_URL,
