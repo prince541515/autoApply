@@ -310,7 +310,7 @@ export default function CandidateJobsPage() {
       if (portalFilter && portalFilter !== "all") params.portal = portalFilter;
       const { data } = await api.post<ScrapeResponse>("/jobs/scrape-now", null, {
         params,
-        timeout: 60000,
+        timeout: 90000,
       });
       if (typeof data.remaining === "number" && typeof data.limit === "number") {
         setQuota({

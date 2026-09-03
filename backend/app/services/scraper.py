@@ -28,6 +28,11 @@ from app.services.job_matcher import (
 )
 from app.services.location_filter import job_matches_preferences, search_locations_from_prefs
 from app.services.portal_adapters import ScrapedJob, get_adapter
+from app.services.portal_adapters.public_search import (
+    indeed_is_blocked,
+    reset_indeed_block,
+    search_linkedin_guest,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -273,6 +278,8 @@ def scrape_for_candidate(
     if posted_within_hours:
         extras["posted_within_hours"] = int(posted_within_hours)
 
+    reset_indeed_block()
+
     total_new = 0
     all_new_jobs: list[JobListing] = []
     portal_lookup: dict[str, str] = {}
@@ -287,26 +294,46 @@ def scrape_for_candidate(
         jobs = await _search_portal(adapter, credentials, queries, extras)
         return conn, jobs
 
-    async def _scrape_all() -> list[tuple[PortalConnection, list[ScrapedJob]]]:
-        results = await asyncio.gather(
+    async def _linkedin_guest() -> list[ScrapedJob]:
+        role, location = queries[0]
+        try:
+            return await search_linkedin_guest(
+                role,
+                location,
+                JOBS_PER_QUERY,
+                within_hours=posted_within_hours,
+                experience_level=extras.get("experience_level") or None,
+            )
+        except Exception:
+            logger.exception("LinkedIn guest search failed")
+            return []
+
+    async def _scrape_all() -> tuple[list[tuple[PortalConnection, list[ScrapedJob]]], list[ScrapedJob]]:
+        portal_task = asyncio.gather(
             *[_scrape_one(conn) for conn in connections],
             return_exceptions=True,
         )
+        guest_task = asyncio.create_task(_linkedin_guest())
+        results = await portal_task
         pairs: list[tuple[PortalConnection, list[ScrapedJob]]] = []
         for item in results:
             if isinstance(item, Exception):
                 logger.exception("Portal scrape failed: %s", item)
                 continue
             pairs.append(item)
-        return pairs
+        try:
+            guest_jobs = await asyncio.wait_for(guest_task, timeout=18)
+        except Exception:
+            guest_jobs = []
+        return pairs, guest_jobs
 
     try:
-        scraped_by_portal = asyncio.run(
+        scraped_by_portal, guest_jobs = asyncio.run(
             asyncio.wait_for(_scrape_all(), timeout=SCRAPE_TIMEOUT_SECONDS)
         )
     except TimeoutError:
         logger.warning("Scrape hit %ss deadline; saving whatever finished", SCRAPE_TIMEOUT_SECONDS)
-        scraped_by_portal = []
+        scraped_by_portal, guest_jobs = [], []
 
     for conn, scraped in scraped_by_portal:
         scraped = [job for job in scraped if job_matches_preferences(job, prefs)]
@@ -318,25 +345,22 @@ def scrape_for_candidate(
         conn.last_synced = datetime.now(timezone.utc)
         db.commit()
 
-    if total_new == 0:
-        from app.services.portal_adapters.public_search import search_linkedin_guest
-
-        role, location = queries[0]
-        fallback = asyncio.run(
-            search_linkedin_guest(
-                role,
-                location,
-                JOBS_PER_QUERY,
-                within_hours=posted_within_hours,
-                experience_level=extras.get("experience_level") or None,
-            )
-        )
-        fallback = [job for job in fallback if job_matches_preferences(job, prefs)]
-        for job in fallback:
-            job.portal = job.portal or "linkedin"
-        new_jobs = _store_jobs(db, fallback, candidate.id)
+    guest_jobs = [job for job in guest_jobs if job_matches_preferences(job, prefs)]
+    if guest_jobs:
+        new_jobs = _store_jobs(db, guest_jobs, candidate.id)
+        for job in new_jobs:
+            portal_lookup[str(job.id)] = job.portal
         all_new_jobs.extend(new_jobs)
         total_new += len(new_jobs)
+
+    if total_new == 0 and indeed_is_blocked():
+        return {
+            "error": (
+                "Indeed blocked this server (403). Connect LinkedIn or try again later. "
+                "Indeed does not allow datacenter scraping."
+            ),
+            "new_jobs": 0,
+        }
 
     if all_new_jobs and auto_apply_effective(candidate):
         matches = [
