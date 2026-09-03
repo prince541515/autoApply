@@ -23,32 +23,24 @@ class IndeedAdapter(BasePortalAdapter):
 
     def __init__(self) -> None:
         self._auth_token: str | None = None
+        self.last_message: str = ""
 
     async def authenticate(self, credentials: dict[str, Any]) -> bool:
         token = credentials.get("access_token") or credentials.get("api_key")
         if token:
             self._auth_token = token
+            self.last_message = "Using Indeed API token"
             return True
 
         email = credentials.get("email")
         password = credentials.get("password")
-        if not email or not password:
-            return False
-
-        try:
-            async with httpx.AsyncClient(timeout=8) as client:
-                response = await client.post(
-                    f"{INDEED_API_BASE}/auth/token",
-                    json={"email": email, "password": password},
-                )
-                if response.status_code == 200:
-                    data = response.json()
-                    self._auth_token = data.get("access_token", "")
-                    return True
-                return False
-        except httpx.HTTPError as exc:
-            logger.exception("Indeed auth failed: %s", exc)
-            return False
+        if email and password:
+            self.last_message = (
+                "Saved. Indeed has no public job-search API; listings come from Indeed’s website."
+            )
+            return True
+        self.last_message = "Email and password are required"
+        return False
 
     async def search_jobs(self, query: dict[str, Any]) -> list[ScrapedJob]:
         """Search Indeed for jobs.
@@ -251,15 +243,6 @@ class IndeedAdapter(BasePortalAdapter):
         return "applied"
 
     async def test_connection(self, credentials: dict[str, Any]) -> bool:
-        """Validate credentials by attempting auth or checking required fields."""
-        if credentials.get("access_token") or credentials.get("api_key"):
-            try:
-                async with httpx.AsyncClient(timeout=10) as client:
-                    response = await client.get(
-                        f"{INDEED_API_BASE}/v1/profile",
-                        headers={"Authorization": f"Bearer {credentials.get('access_token', credentials.get('api_key', ''))}"},
-                    )
-                    return response.status_code == 200
-            except httpx.HTTPError:
-                return False
-        return bool(credentials.get("email") and credentials.get("password"))
+        """Store-and-go: Indeed does not expose a public search token API."""
+        ok = await self.authenticate(credentials)
+        return ok

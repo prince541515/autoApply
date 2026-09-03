@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import xml.etree.ElementTree as ET
@@ -101,69 +102,210 @@ def _hours_to_days(within_hours: int | None) -> int | None:
     return max(1, -(-within_hours // 24))
 
 
+def _indeed_host(location: str) -> str:
+    loc = (location or "").lower()
+    india = (
+        "india",
+        "karnataka",
+        "maharashtra",
+        "telangana",
+        "tamil",
+        "delhi",
+        "bangalore",
+        "bengaluru",
+        "hyderabad",
+        "mumbai",
+        "pune",
+        "chennai",
+        "gurgaon",
+        "noida",
+        "kolkata",
+        "ahmedabad",
+    )
+    return "in.indeed.com" if any(token in loc for token in india) else "www.indeed.com"
+
+
+def _json_field(blob: str, key: str) -> str:
+    match = re.search(rf'"{re.escape(key)}"\s*:\s*"((?:\\.|[^"\\])*)"', blob)
+    if not match:
+        return ""
+    raw = match.group(1)
+    try:
+        return _clean(json.loads(f'"{raw}"'))
+    except Exception:
+        return _clean(raw.replace("\\/", "/"))
+
+
+def _parse_indeed_html(html: str, host: str, location: str, limit: int) -> list[ScrapedJob]:
+    jobs: list[ScrapedJob] = []
+    seen: set[str] = set()
+
+    for match in re.finditer(r'"jobkey"\s*:\s*"([a-zA-Z0-9]{10,22})"', html):
+        jk = match.group(1)
+        if jk in seen:
+            continue
+        window = html[max(0, match.start() - 900) : match.end() + 1400]
+        title = (
+            _json_field(window, "displayTitle")
+            or _json_field(window, "jobTitle")
+            or _json_field(window, "title")
+        )
+        if not title or title.lower() in {"job details", "indeed"} or len(title) < 3:
+            continue
+        company = (
+            _json_field(window, "company")
+            or _json_field(window, "companyName")
+            or _json_field(window, "formattedCompany")
+            or "Unknown"
+        )
+        loc_text = (
+            _json_field(window, "formattedLocation")
+            or _json_field(window, "jobLocationCity")
+            or location
+            or None
+        )
+        seen.add(jk)
+        jobs.append(
+            ScrapedJob(
+                external_id=jk,
+                portal="indeed",
+                title=title,
+                company=company,
+                location=loc_text,
+                url=f"https://{host}/viewjob?jk={jk}",
+            )
+        )
+        if len(jobs) >= limit:
+            return jobs
+
+    for match in re.finditer(
+        r'data-jk="([a-zA-Z0-9]{10,22})"[^>]*>[\s\S]{0,400}?<span[^>]*>([^<]{3,120})</span>',
+        html,
+    ):
+        jk, title = match.group(1), _clean(match.group(2))
+        if jk in seen or not title:
+            continue
+        seen.add(jk)
+        jobs.append(
+            ScrapedJob(
+                external_id=jk,
+                portal="indeed",
+                title=title,
+                company="Unknown",
+                location=location or None,
+                url=f"https://{host}/viewjob?jk={jk}",
+            )
+        )
+        if len(jobs) >= limit:
+            break
+    return jobs
+
+
+async def _fetch_indeed_page(url: str) -> tuple[int, str]:
+    headers = {
+        **BROWSER_HEADERS,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Referer": "https://www.indeed.com/",
+        "Upgrade-Insecure-Requests": "1",
+    }
+    async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers=headers) as client:
+        response = await client.get(url)
+        return response.status_code, response.text
+
+
 async def search_indeed_rss(
     keywords: str,
     location: str = "",
     limit: int = 15,
     within_hours: int | None = None,
 ) -> list[ScrapedJob]:
-    loc = (location or "").lower()
-    host = "in.indeed.com" if any(token in loc for token in ("india", "bangalore", "bengaluru", "hyderabad", "mumbai", "delhi", "pune", "chennai")) else "www.indeed.com"
-    url = f"https://{host}/rss?q={quote_plus(keywords)}"
-    if location:
-        url += f"&l={quote_plus(location)}"
+    """Public Indeed listings. RSS was retired; scrape the jobs page over HTTP."""
+    primary = _indeed_host(location)
+    hosts = [primary, "www.indeed.com" if primary != "www.indeed.com" else "in.indeed.com"]
     days = _hours_to_days(within_hours)
-    if days:
-        url += f"&fromage={days}"
 
-    try:
-        async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers=BROWSER_HEADERS) as client:
-            response = await client.get(url)
-            if response.status_code != 200:
-                logger.warning("Indeed RSS returned %d", response.status_code)
-                return []
-            xml_text = response.text
-    except httpx.HTTPError as exc:
-        logger.warning("Indeed RSS failed: %s", exc)
-        return []
+    for host in hosts:
+        params = f"q={quote_plus(keywords)}&sort=date"
+        if location:
+            params += f"&l={quote_plus(location)}"
+        if days:
+            params += f"&fromage={days}"
+        urls = [
+            f"https://{host}/jobs?{params}",
+            f"https://{host}/m/jobs?{params}",
+        ]
+        for url in urls:
+            try:
+                status, body = await _fetch_indeed_page(url)
+            except httpx.HTTPError as exc:
+                logger.warning("Indeed HTML search failed for %s: %s", url, exc)
+                continue
+            if status != 200:
+                logger.warning("Indeed HTML search returned %d for %s", status, url)
+                continue
+            jobs = _parse_indeed_html(body, host, location, limit)
+            if jobs:
+                return jobs
 
-    try:
-        root = ET.fromstring(xml_text)
-    except ET.ParseError:
-        logger.warning("Indeed RSS was not valid XML")
-        return []
+    rss_urls: list[str] = []
+    q = quote_plus(keywords)
+    loc_q = f"&l={quote_plus(location)}" if location else ""
+    age = f"&fromage={days}" if days else ""
+    for host in ("www.indeed.com", "rss.indeed.com"):
+        rss_urls.append(f"https://{host}/rss?q={q}{loc_q}{age}")
 
-    jobs: list[ScrapedJob] = []
-    for item in root.findall(".//item"):
-        title_el = item.find("title")
-        link_el = item.find("link")
-        guid_el = item.find("guid")
-        desc_el = item.find("description")
-        title_text = _clean(title_el.text if title_el is not None else "")
-        if " - " in title_text:
-            job_title, company = title_text.rsplit(" - ", 1)
-        else:
-            job_title, company = title_text, "Unknown"
-        link = (link_el.text or "").strip() if link_el is not None else ""
-        guid = (guid_el.text or "").strip() if guid_el is not None else link
-        jk = re.search(r"[?&]jk=([a-z0-9]+)", link or guid, re.IGNORECASE)
-        external_id = jk.group(1) if jk else guid or link
-        if not job_title or not external_id:
+    for url in rss_urls:
+        try:
+            status, xml_text = await _fetch_indeed_page(url)
+        except httpx.HTTPError as exc:
+            logger.warning("Indeed RSS failed for %s: %s", url, exc)
             continue
-        jobs.append(
-            ScrapedJob(
-                external_id=external_id,
-                portal="indeed",
-                title=job_title,
-                company=company,
-                location=location or None,
-                description=_clean(re.sub(r"<[^>]+>", " ", desc_el.text or "")) if desc_el is not None else None,
-                url=link or f"https://{host}/viewjob?jk={external_id}",
+        if status != 200:
+            logger.warning("Indeed RSS returned %d for %s", status, url)
+            continue
+        try:
+            root = ET.fromstring(xml_text)
+        except ET.ParseError:
+            logger.warning("Indeed RSS was not valid XML at %s", url)
+            continue
+        jobs: list[ScrapedJob] = []
+        host = "www.indeed.com"
+        for item in root.findall(".//item"):
+            title_el = item.find("title")
+            link_el = item.find("link")
+            guid_el = item.find("guid")
+            desc_el = item.find("description")
+            title_text = _clean(title_el.text if title_el is not None else "")
+            if " - " in title_text:
+                job_title, company = title_text.rsplit(" - ", 1)
+            else:
+                job_title, company = title_text, "Unknown"
+            link = (link_el.text or "").strip() if link_el is not None else ""
+            guid = (guid_el.text or "").strip() if guid_el is not None else link
+            jk = re.search(r"[?&]jk=([a-z0-9]+)", link or guid, re.IGNORECASE)
+            external_id = jk.group(1) if jk else guid or link
+            if not job_title or not external_id:
+                continue
+            jobs.append(
+                ScrapedJob(
+                    external_id=external_id,
+                    portal="indeed",
+                    title=job_title,
+                    company=company,
+                    location=location or None,
+                    description=_clean(re.sub(r"<[^>]+>", " ", desc_el.text or ""))
+                    if desc_el is not None
+                    else None,
+                    url=link or f"https://{host}/viewjob?jk={external_id}",
+                )
             )
-        )
-        if len(jobs) >= limit:
-            break
-    return jobs
+            if len(jobs) >= limit:
+                break
+        if jobs:
+            return jobs
+
+    logger.warning("Indeed public search returned no jobs for %r in %r", keywords, location)
+    return []
 
 
 def _slug(text: str) -> str:
