@@ -175,6 +175,34 @@ SORTABLE_COLUMNS = {
 }
 
 
+async def _log_status_mark(
+    db: AsyncSession,
+    *,
+    user_id,
+    candidate_id,
+    job_id: str,
+    status_value: str,
+) -> None:
+    from app.services.activity import record_activity
+
+    if status_value == "applied":
+        await record_activity(
+            db,
+            user_id=user_id,
+            candidate_id=candidate_id,
+            event_type="apply_click",
+            metadata={"job_id": job_id, "mode": "manual", "status": status_value},
+        )
+        return
+    await record_activity(
+        db,
+        user_id=user_id,
+        candidate_id=candidate_id,
+        event_type="status_mark",
+        metadata={"job_id": job_id, "status": status_value, "mode": "manual"},
+    )
+
+
 @router.post("/", response_model=CreateApplicationResponse)
 async def create_application(
     body: CreateApplicationRequest,
@@ -272,15 +300,15 @@ async def mark_application_status(
         )
         db.add(app)
 
-    await db.commit()
+    await db.flush()
 
-    if body.status == "applied":
-        await record_activity(
+    if body.status in ALLOWED_MANUAL_STATUSES:
+        await _log_status_mark(
             db,
             user_id=current_user.id,
             candidate_id=profile.id,
-            event_type="apply_click",
-            metadata={"job_id": str(body.job_id), "mode": "manual"},
+            job_id=str(body.job_id),
+            status_value=body.status,
         )
 
     return CreateApplicationResponse(
@@ -341,7 +369,18 @@ async def mark_applications_bulk(
             )
         affected += 1
 
-    await db.commit()
+    await db.flush()
+    if body.status in ALLOWED_MANUAL_STATUSES:
+        for job_id in job_ids:
+            if job_id not in jobs:
+                continue
+            await _log_status_mark(
+                db,
+                user_id=current_user.id,
+                candidate_id=profile.id,
+                job_id=str(job_id),
+                status_value=body.status,
+            )
     return BulkActionResponse(
         affected=affected,
         message=f"Updated {affected} job{'s' if affected != 1 else ''} to {body.status}",
@@ -376,7 +415,14 @@ async def update_application_status(
     app.status = body.status
     if body.status == "applied" and not app.applied_at:
         app.applied_at = datetime.now(timezone.utc)
-    await db.commit()
+    await db.flush()
+    await _log_status_mark(
+        db,
+        user_id=current_user.id,
+        candidate_id=profile.id,
+        job_id=str(app.job_id),
+        status_value=body.status,
+    )
     return app
 
 

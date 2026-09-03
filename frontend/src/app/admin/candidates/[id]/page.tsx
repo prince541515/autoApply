@@ -56,7 +56,7 @@ export default function AdminCandidateDetailPage() {
   const [scrapeLimit, setScrapeLimit] = useState("");
   const [savingScrapeLimit, setSavingScrapeLimit] = useState(false);
   const [eventFilter, setEventFilter] = useState<
-    "all" | "job_fetch" | "apply_click" | "auto_apply"
+    "all" | "job_fetch" | "apply_click" | "auto_apply" | "status_mark"
   >("all");
 
   const filteredEvents = useMemo(() => {
@@ -405,6 +405,7 @@ export default function AdminCandidateDetailPage() {
                   ["job_fetch", "Fetches"],
                   ["apply_click", "Apply clicks"],
                   ["auto_apply", "Auto-apply"],
+                  ["status_mark", "Status marks"],
                 ] as const
               ).map(([key, label]) => (
                 <Button
@@ -464,7 +465,7 @@ export default function AdminCandidateDetailPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {activity.applications.length === 0 ? (
+            {(activity.applications ?? []).length === 0 ? (
               <p className="text-sm text-zinc-400">No applications yet.</p>
             ) : (
               <div className="max-h-[24rem] overflow-auto">
@@ -478,7 +479,7 @@ export default function AdminCandidateDetailPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {activity.applications.map((app) => (
+                    {(activity.applications ?? []).map((app) => (
                       <tr key={app.id} className="border-b border-white/5 last:border-0">
                         <td className="py-2.5 pr-3">
                           <p className="font-medium text-zinc-100">

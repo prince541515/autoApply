@@ -1,12 +1,13 @@
 import secrets
 import string
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import defer, selectinload
 
 from app.core.access import disable_auto_apply_runtime
 from app.core.database import get_db
@@ -143,6 +144,16 @@ async def list_all_candidates(
     )
     apps_by_candidate = {row[0]: row[1] for row in app_counts.all()}
 
+    applied_counts = await db.execute(
+        select(Application.candidate_id, func.count(Application.id))
+        .where(
+            Application.candidate_id.in_(candidate_ids),
+            Application.status == "applied",
+        )
+        .group_by(Application.candidate_id)
+    )
+    applied_by_candidate = {row[0]: row[1] for row in applied_counts.all()}
+
     events_result = await db.execute(
         select(ActivityEvent).where(ActivityEvent.candidate_id.in_(candidate_ids))
     )
@@ -177,7 +188,9 @@ async def list_all_candidates(
                 "application_count": apps_by_candidate.get(profile.id, 0),
                 "fetch_times": counts["fetch_times"],
                 "jobs_fetched": counts["jobs_fetched"],
-                "apply_clicks": counts["apply_clicks"],
+                "apply_clicks": max(
+                    counts["apply_clicks"], applied_by_candidate.get(profile.id, 0)
+                ),
                 "created_at": profile.created_at.isoformat() if profile.created_at else None,
             }
         )
@@ -417,6 +430,14 @@ def _iso(dt) -> str | None:
     return dt.isoformat() if dt else None
 
 
+def _as_utc(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 def _event_summary(event: ActivityEvent, jobs: dict[str, JobListing]) -> str:
     extra = event.extra or {}
     job = jobs.get(str(extra.get("job_id") or ""))
@@ -434,6 +455,9 @@ def _event_summary(event: ActivityEvent, jobs: dict[str, JobListing]) -> str:
         status = extra.get("status")
         suffix = f" · {status}" if status else ""
         return f"Auto-apply{suffix}" + (f" — {job_label}" if job_label else "")
+    if event.event_type == "status_mark":
+        marked = extra.get("status") or "updated"
+        return f"Marked as {marked}" + (f" — {job_label}" if job_label else "")
     return event.event_type.replace("_", " ")
 
 
@@ -473,7 +497,11 @@ async def candidate_activity(
 
     apps_result = await db.execute(
         select(Application)
-        .options(selectinload(Application.job))
+        .options(
+            selectinload(Application.job).options(
+                defer(JobListing.raw_data), defer(JobListing.description)
+            )
+        )
         .where(Application.candidate_id == candidate_id)
         .order_by(Application.created_at.desc())
     )
@@ -484,12 +512,65 @@ async def candidate_activity(
     jobs_by_id: dict[str, JobListing] = {}
     unique_job_ids = list(dict.fromkeys(job_ids))
     if unique_job_ids:
-        jobs_result = await db.execute(select(JobListing).where(JobListing.id.in_(unique_job_ids)))
+        jobs_result = await db.execute(
+            select(JobListing)
+            .options(defer(JobListing.raw_data), defer(JobListing.description))
+            .where(JobListing.id.in_(unique_job_ids))
+        )
         jobs_by_id = {str(job.id): job for job in jobs_result.scalars().all()}
+
+    tracked_job_ids = {
+        str((event.extra or {}).get("job_id"))
+        for event in events
+        if event.event_type in {"apply_click", "auto_apply", "status_mark"}
+        and (event.extra or {}).get("job_id")
+    }
+
+    class _SynthEvent:
+        def __init__(self, event_type: str, extra: dict) -> None:
+            self.event_type = event_type
+            self.extra = extra
+
+    synthetic_events: list[dict] = []
+    for app in applications:
+        job_key = str(app.job_id)
+        if job_key in tracked_job_ids:
+            continue
+        extra = {
+            "job_id": job_key,
+            "status": app.status,
+            "mode": "manual",
+            "backfilled": True,
+        }
+        event_type = "apply_click" if app.status == "applied" else "status_mark"
+        created = app.applied_at or app.created_at
+        synthetic_events.append(
+            {
+                "id": f"app-{app.id}",
+                "event_type": event_type,
+                "summary": _event_summary(_SynthEvent(event_type, extra), jobs_by_id),
+                "metadata": extra,
+                "created_at": _iso(created),
+            }
+        )
+        if event_type == "apply_click":
+            counts["apply_clicks"] += 1
+        tracked_job_ids.add(job_key)
 
     last_fetch = next((e for e in events if e.event_type == "job_fetch"), None)
     last_apply_click = next((e for e in events if e.event_type == "apply_click"), None)
     last_auto_apply = next((e for e in events if e.event_type == "auto_apply"), None)
+    last_applied_app = max(
+        (a for a in applications if a.status == "applied"),
+        key=lambda a: _as_utc(a.applied_at or a.created_at) or datetime.min.replace(tzinfo=timezone.utc),
+        default=None,
+    )
+    last_apply_at = _iso(last_apply_click.created_at) if last_apply_click else None
+    if last_applied_app:
+        app_dt = _as_utc(last_applied_app.applied_at or last_applied_app.created_at)
+        click_dt = _as_utc(last_apply_click.created_at) if last_apply_click else None
+        if app_dt and (not click_dt or app_dt > click_dt):
+            last_apply_at = _iso(app_dt)
 
     apps_by_status: dict[str, int] = {}
     applied_count = 0
@@ -539,19 +620,26 @@ async def candidate_activity(
         "applied_count": applied_count,
         "applications_by_status": apps_by_status,
         "last_fetch_at": _iso(last_fetch.created_at) if last_fetch else None,
-        "last_apply_click_at": _iso(last_apply_click.created_at) if last_apply_click else None,
+        "last_apply_click_at": last_apply_at,
         "last_auto_apply_at": _iso(last_auto_apply.created_at) if last_auto_apply else None,
         **counts,
-        "events": [
-            {
-                "id": str(event.id),
-                "event_type": event.event_type,
-                "summary": _event_summary(event, jobs_by_id),
-                "metadata": event.extra,
-                "created_at": _iso(event.created_at),
-            }
-            for event in events[:400]
-        ],
+        "events": sorted(
+            [
+                *[
+                    {
+                        "id": str(event.id),
+                        "event_type": event.event_type,
+                        "summary": _event_summary(event, jobs_by_id),
+                        "metadata": event.extra,
+                        "created_at": _iso(event.created_at),
+                    }
+                    for event in events
+                ],
+                *synthetic_events,
+            ],
+            key=lambda item: item["created_at"] or "",
+            reverse=True,
+        )[:400],
         "applications": [
             {
                 "id": str(app.id),
