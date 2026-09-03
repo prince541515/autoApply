@@ -108,7 +108,7 @@ def _build_search_queries(prefs: list[JobPreference]) -> list[tuple[str, str]]:
     return unique[:MAX_QUERIES]
 
 
-def _store_jobs(db: Session, scraped: list[ScrapedJob]) -> list[JobListing]:
+def _store_jobs(db: Session, scraped: list[ScrapedJob], candidate_id) -> list[JobListing]:
     if not scraped:
         return []
 
@@ -118,6 +118,7 @@ def _store_jobs(db: Session, scraped: list[ScrapedJob]) -> list[JobListing]:
             continue
         existing = db.execute(
             select(JobListing).where(
+                JobListing.candidate_id == candidate_id,
                 JobListing.external_id == sj.external_id,
                 JobListing.portal == sj.portal,
             )
@@ -133,6 +134,7 @@ def _store_jobs(db: Session, scraped: list[ScrapedJob]) -> list[JobListing]:
                 posted_at = None
 
         listing = JobListing(
+            candidate_id=candidate_id,
             external_id=sj.external_id,
             portal=sj.portal,
             title=sj.title,
@@ -308,7 +310,7 @@ def scrape_for_candidate(
 
     for conn, scraped in scraped_by_portal:
         scraped = [job for job in scraped if job_matches_preferences(job, prefs)]
-        new_jobs = _store_jobs(db, scraped)
+        new_jobs = _store_jobs(db, scraped, candidate.id)
         for job in new_jobs:
             portal_lookup[str(job.id)] = job.portal
         all_new_jobs.extend(new_jobs)
@@ -332,7 +334,7 @@ def scrape_for_candidate(
         fallback = [job for job in fallback if job_matches_preferences(job, prefs)]
         for job in fallback:
             job.portal = job.portal or "linkedin"
-        new_jobs = _store_jobs(db, fallback)
+        new_jobs = _store_jobs(db, fallback, candidate.id)
         all_new_jobs.extend(new_jobs)
         total_new += len(new_jobs)
 

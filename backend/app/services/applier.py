@@ -167,7 +167,12 @@ def apply_application(db: Session, application_id: str) -> dict:
 
 
 def create_and_apply_job(db: Session, candidate_id: str, job_id: str) -> dict:
-    job = db.execute(select(JobListing).where(JobListing.id == job_id)).scalar_one_or_none()
+    job = db.execute(
+        select(JobListing).where(
+            JobListing.id == job_id,
+            JobListing.candidate_id == candidate_id,
+        )
+    ).scalar_one_or_none()
     if not job:
         return {"status": "failed", "message": "Job not found", "http_status": 404}
 

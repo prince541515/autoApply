@@ -165,6 +165,30 @@ async def ensure_schema() -> None:
                 "scrape_quota_used INTEGER NOT NULL DEFAULT 0"
             )
         )
+        await conn.execute(
+            text(
+                "ALTER TABLE job_listings ADD COLUMN IF NOT EXISTS "
+                "candidate_id UUID REFERENCES candidate_profiles(id) ON DELETE CASCADE"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_job_listings_candidate_id "
+                "ON job_listings (candidate_id)"
+            )
+        )
+        await conn.execute(
+            text("ALTER TABLE job_listings DROP CONSTRAINT IF EXISTS uq_job_external_portal")
+        )
+        await conn.execute(
+            text(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_candidate_job_external_portal
+                ON job_listings (candidate_id, external_id, portal)
+                WHERE candidate_id IS NOT NULL
+                """
+            )
+        )
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

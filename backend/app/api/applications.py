@@ -271,7 +271,12 @@ async def mark_application_status(
 
     profile = await _get_profile(db, current_user)
 
-    job_result = await db.execute(select(JobListing).where(JobListing.id == body.job_id))
+    job_result = await db.execute(
+        select(JobListing).where(
+            JobListing.id == body.job_id,
+            JobListing.candidate_id == profile.id,
+        )
+    )
     job = job_result.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
@@ -334,7 +339,12 @@ async def mark_applications_bulk(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="No jobs selected")
 
     profile = await _get_profile(db, current_user)
-    jobs_result = await db.execute(select(JobListing).where(JobListing.id.in_(job_ids)))
+    jobs_result = await db.execute(
+        select(JobListing).where(
+            JobListing.id.in_(job_ids),
+            JobListing.candidate_id == profile.id,
+        )
+    )
     jobs = {job.id: job for job in jobs_result.scalars().all()}
     existing_result = await db.execute(
         select(Application).where(

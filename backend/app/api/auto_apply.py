@@ -106,7 +106,10 @@ async def trigger_auto_apply(
     portal_names = [p.portal for p in active_portals]
 
     jobs_result = await db.execute(
-        select(JobListing).where(JobListing.portal.in_(portal_names))
+        select(JobListing).where(
+            JobListing.candidate_id == profile.id,
+            JobListing.portal.in_(portal_names),
+        )
     )
     jobs = list(jobs_result.scalars().all())
 

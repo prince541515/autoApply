@@ -273,6 +273,8 @@ def match_jobs_to_candidates(
         from app.services.experience_filter import job_fits_experience
 
         for job in jobs:
+            if str(getattr(job, "candidate_id", "") or "") != str(candidate.id):
+                continue
             if not job_fits_experience(
                 job.title, job.description or "", pref_min_exp, pref_max_exp
             ):

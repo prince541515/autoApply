@@ -104,7 +104,12 @@ async def list_jobs(
     current_user: User = Depends(require_active_candidate),
     db: AsyncSession = Depends(get_db),
 ) -> JobListResponse:
-    query = select(JobListing).order_by(JobListing.scraped_at.desc())
+    profile = await _get_profile(db, current_user)
+    query = (
+        select(JobListing)
+        .where(JobListing.candidate_id == profile.id)
+        .order_by(JobListing.scraped_at.desc())
+    )
 
     if portal:
         query = query.where(JobListing.portal == portal)
@@ -156,6 +161,7 @@ async def get_matched_jobs(
     query = (
         select(JobListing)
         .options(defer(JobListing.raw_data))
+        .where(JobListing.candidate_id == profile.id)
         .order_by(JobListing.scraped_at.desc())
     )
     if portal:
@@ -240,10 +246,11 @@ async def get_job(
     current_user: User = Depends(require_active_candidate),
     db: AsyncSession = Depends(get_db),
 ) -> JobListingResponse:
+    profile = await _get_profile(db, current_user)
     result = await db.execute(
         select(JobListing)
         .options(defer(JobListing.raw_data))
-        .where(JobListing.id == job_id)
+        .where(JobListing.id == job_id, JobListing.candidate_id == profile.id)
     )
     job = result.scalar_one_or_none()
     if not job:
