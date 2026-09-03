@@ -276,7 +276,7 @@ export default function CandidateJobsPage() {
 
   useEffect(() => {
     void api
-      .get<JobPreference[]>("/preferences/")
+      .get<JobPreference[]>("/preferences")
       .then((res) => setPreferences(res.data[0] ?? null))
       .catch(() => undefined);
   }, []);

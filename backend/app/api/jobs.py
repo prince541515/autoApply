@@ -201,12 +201,6 @@ async def get_matched_jobs(
         score = score_job_with_flat_prefs(job, flat_prefs, use_description=False)
         if min_score <= score <= max_score:
             scored.append((score, job))
-    if not scored:
-        for job in listings:
-            if status_by_job.get(job.id) in HIDDEN_STATUSES:
-                continue
-            score = score_job_with_flat_prefs(job, flat_prefs, use_description=False)
-            scored.append((score, job))
     scored.sort(key=lambda item: item[0], reverse=True)
     total = len(scored)
     page = scored[offset : offset + limit]

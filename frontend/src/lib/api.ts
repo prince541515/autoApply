@@ -78,6 +78,11 @@ api.interceptors.request.use((config) => {
   if (config.data instanceof FormData) {
     delete config.headers["Content-Type"];
   }
+  if (typeof config.url === "string") {
+    const [path, query] = config.url.split("?");
+    const trimmed = path.replace(/\/+$/, "") || "/";
+    config.url = query ? `${trimmed}?${query}` : trimmed;
+  }
   return config;
 });
 

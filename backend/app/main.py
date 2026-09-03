@@ -5,6 +5,7 @@ from urllib.parse import urlsplit
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.api import admin, applications, auth, auto_apply, candidates, dashboard, jobs, portals, preferences
 from app.core.config import settings
@@ -46,12 +47,43 @@ async def lifespan(_app: FastAPI):
     task.cancel()
 
 
+# Vercel/Next rewrites drop the trailing slash. FastAPI then 307s to /preferences/,
+# the browser follows that Location to Railway, and the client sees a network error.
+_COLLECTION_PATHS = frozenset(
+    {
+        "/preferences",
+        "/applications",
+        "/portals",
+        "/candidates",
+        "/jobs",
+    }
+)
+
+
+class _CollectionSlashMiddleware:
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            path = scope.get("path") or ""
+            if path in _COLLECTION_PATHS:
+                scope = dict(scope)
+                slashed = f"{path}/"
+                scope["path"] = slashed
+                if isinstance(scope.get("raw_path"), (bytes, bytearray)):
+                    scope["raw_path"] = slashed.encode("ascii")
+        await self.app(scope, receive, send)
+
+
 app = FastAPI(
     title="AutoApply API",
     description="Job auto-application SaaS platform",
     version="1.0.0",
     lifespan=lifespan,
+    redirect_slashes=False,
 )
+app.add_middleware(_CollectionSlashMiddleware)
 
 logger.info("CORS allow_origins=%s", settings.cors_origin_list)
 

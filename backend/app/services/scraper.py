@@ -113,6 +113,12 @@ def _build_search_queries(prefs: list[JobPreference]) -> list[tuple[str, str]]:
     return unique[:MAX_QUERIES]
 
 
+def _keywords_for_role(role: str, extras: dict) -> str:
+    skills = extras.get("skill_keywords") or []
+    extra = " ".join(str(skill) for skill in skills[:2] if skill)
+    return f"{role} {extra}".strip() if extra else role
+
+
 def _store_jobs(db: Session, scraped: list[ScrapedJob], candidate_id) -> list[JobListing]:
     if not scraped:
         return []
@@ -179,7 +185,7 @@ async def _search_portal(
 
     async def _one(role: str, location: str) -> list[ScrapedJob]:
         query = {
-            "keywords": role,
+            "keywords": _keywords_for_role(role, extras),
             "location": location,
             "limit": JOBS_PER_QUERY,
             "allow_browser": allow_browser,
@@ -301,11 +307,10 @@ def scrape_for_candidate(
         batches = await asyncio.gather(
             *[
                 search_linkedin_guest(
-                    role,
+                    _keywords_for_role(role, extras),
                     location,
                     JOBS_PER_QUERY,
                     within_hours=posted_within_hours,
-                    experience_level=extras.get("experience_level") or None,
                 )
                 for role, location in queries[:MAX_QUERIES]
             ],
@@ -358,12 +363,6 @@ def scrape_for_candidate(
             before,
             len(kept),
         )
-        if not kept and scraped:
-            logger.warning(
-                "Preferences dropped every %s job; storing unfiltered results",
-                conn.portal,
-            )
-            kept = scraped
         new_jobs = _store_jobs(db, kept, candidate.id)
         for job in new_jobs:
             portal_lookup[str(job.id)] = job.portal
@@ -378,9 +377,6 @@ def scrape_for_candidate(
         len(guest_jobs),
         len(guest_kept),
     )
-    if not guest_kept and guest_jobs:
-        logger.warning("Preferences dropped every guest job; storing the unfiltered LinkedIn results")
-        guest_kept = guest_jobs
     guest_jobs = guest_kept
     if guest_jobs:
         new_jobs = _store_jobs(db, guest_jobs, candidate.id)

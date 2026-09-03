@@ -70,7 +70,7 @@ export default function PreferencesPage() {
 
   const loadPreferences = useCallback(async () => {
     try {
-      const { data } = await api.get<JobPreference[]>("/preferences/");
+      const { data } = await api.get<JobPreference[]>("/preferences");
       if (data.length > 0) {
         const pref = data[0];
         setPrefId(String(pref.id));
@@ -93,8 +93,11 @@ export default function PreferencesPage() {
         );
         setExcludedCompanies(pref.excluded_companies ?? []);
       }
-    } catch {
-      /* API may not be running */
+    } catch (err: unknown) {
+      toast.error({
+        title: "Could not load preferences",
+        description: getApiErrorMessage(err, "Try again."),
+      });
     }
   }, []);
 
@@ -124,7 +127,7 @@ export default function PreferencesPage() {
       if (prefId) {
         await api.put(`/preferences/${prefId}`, payload);
       } else {
-        const { data } = await api.post("/preferences/", payload);
+        const { data } = await api.post("/preferences", payload);
         setPrefId(String(data.id));
       }
       setSaved(true);
