@@ -221,6 +221,7 @@ def scrape_for_candidate(
     posted_within_hours: int | None = None,
     source: str = "scheduled",
 ) -> dict:
+    posted_within_hours = int(posted_within_hours) if posted_within_hours else 24
     candidate = db.execute(
         select(CandidateProfile)
         .options(joinedload(CandidateProfile.user))
@@ -295,18 +296,31 @@ def scrape_for_candidate(
         return conn, jobs
 
     async def _linkedin_guest() -> list[ScrapedJob]:
-        role, location = queries[0]
-        try:
-            return await search_linkedin_guest(
-                role,
-                location,
-                JOBS_PER_QUERY,
-                within_hours=posted_within_hours,
-                experience_level=extras.get("experience_level") or None,
-            )
-        except Exception:
-            logger.exception("LinkedIn guest search failed")
-            return []
+        collected: list[ScrapedJob] = []
+        seen: set[str] = set()
+        batches = await asyncio.gather(
+            *[
+                search_linkedin_guest(
+                    role,
+                    location,
+                    JOBS_PER_QUERY,
+                    within_hours=posted_within_hours,
+                    experience_level=extras.get("experience_level") or None,
+                )
+                for role, location in queries[:MAX_QUERIES]
+            ],
+            return_exceptions=True,
+        )
+        for batch in batches:
+            if isinstance(batch, Exception):
+                logger.warning("LinkedIn guest search failed: %s", batch)
+                continue
+            for job in batch:
+                if job.external_id in seen:
+                    continue
+                seen.add(job.external_id)
+                collected.append(job)
+        return collected
 
     async def _scrape_all() -> tuple[list[tuple[PortalConnection, list[ScrapedJob]]], list[ScrapedJob]]:
         portal_task = asyncio.gather(
@@ -336,8 +350,21 @@ def scrape_for_candidate(
         scraped_by_portal, guest_jobs = [], []
 
     for conn, scraped in scraped_by_portal:
-        scraped = [job for job in scraped if job_matches_preferences(job, prefs)]
-        new_jobs = _store_jobs(db, scraped, candidate.id)
+        before = len(scraped)
+        kept = [job for job in scraped if job_matches_preferences(job, prefs)]
+        logger.info(
+            "scrape %s: %d fetched, %d kept after preferences",
+            conn.portal,
+            before,
+            len(kept),
+        )
+        if not kept and scraped:
+            logger.warning(
+                "Preferences dropped every %s job; storing unfiltered results",
+                conn.portal,
+            )
+            kept = scraped
+        new_jobs = _store_jobs(db, kept, candidate.id)
         for job in new_jobs:
             portal_lookup[str(job.id)] = job.portal
         all_new_jobs.extend(new_jobs)
@@ -345,7 +372,16 @@ def scrape_for_candidate(
         conn.last_synced = datetime.now(timezone.utc)
         db.commit()
 
-    guest_jobs = [job for job in guest_jobs if job_matches_preferences(job, prefs)]
+    guest_kept = [job for job in guest_jobs if job_matches_preferences(job, prefs)]
+    logger.info(
+        "LinkedIn guest fallback %d fetched, %d kept after preferences",
+        len(guest_jobs),
+        len(guest_kept),
+    )
+    if not guest_kept and guest_jobs:
+        logger.warning("Preferences dropped every guest job; storing the unfiltered LinkedIn results")
+        guest_kept = guest_jobs
+    guest_jobs = guest_kept
     if guest_jobs:
         new_jobs = _store_jobs(db, guest_jobs, candidate.id)
         for job in new_jobs:

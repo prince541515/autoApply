@@ -88,7 +88,9 @@ def job_matches_location(
     is_remote = "remote" in job_lower
 
     if mode == "remote":
-        return is_remote or not job_loc
+        if is_remote or not job_loc:
+            return True
+        # Still accept on-site/hybrid roles in the preferred country.
     if mode == "on-site" and is_remote and "hybrid" not in job_lower:
         return False
     if allow_remote and is_remote:
@@ -177,7 +179,7 @@ def job_matches_pref_filter(job: JobListing | ScrapedJob, filt: dict) -> bool:
         return False
     roles = filt.get("roles") or []
     if roles and (not industries or "Any" in industries):
-        if score_role_match(job.title, roles) < 0.35:
+        if score_role_match(job.title, roles) < 0.2:
             return False
     excluded = filt.get("excluded") or []
     if excluded:

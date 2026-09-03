@@ -201,6 +201,12 @@ async def get_matched_jobs(
         score = score_job_with_flat_prefs(job, flat_prefs, use_description=False)
         if min_score <= score <= max_score:
             scored.append((score, job))
+    if not scored:
+        for job in listings:
+            if status_by_job.get(job.id) in HIDDEN_STATUSES:
+                continue
+            score = score_job_with_flat_prefs(job, flat_prefs, use_description=False)
+            scored.append((score, job))
     scored.sort(key=lambda item: item[0], reverse=True)
     total = len(scored)
     page = scored[offset : offset + limit]
@@ -262,7 +268,7 @@ async def get_job(
 async def trigger_scrape(
     background_tasks: BackgroundTasks,
     portal: str | None = None,
-    posted_within_hours: int | None = Query(None, ge=1, le=744),
+    posted_within_hours: int = Query(24, ge=1, le=744),
     current_user: User = Depends(require_active_candidate),
     db: AsyncSession = Depends(get_db),
 ) -> ScrapeResponse:

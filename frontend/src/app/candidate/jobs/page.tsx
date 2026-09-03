@@ -203,7 +203,7 @@ export default function CandidateJobsPage() {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [portalFilter, setPortalFilter] = useState("all");
-  const [postedWithin, setPostedWithin] = useState("168");
+  const [postedWithin, setPostedWithin] = useState("24");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [descriptions, setDescriptions] = useState<Record<string, string>>({});
   const [scraping, setScraping] = useState(false);

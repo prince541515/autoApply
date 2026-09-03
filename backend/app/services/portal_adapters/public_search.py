@@ -48,7 +48,7 @@ async def search_linkedin_guest(
     within_hours: int | None = None,
     experience_level: str | None = None,
 ) -> list[ScrapedJob]:
-    seconds = (within_hours or 168) * 3600
+    seconds = (within_hours or 24) * 3600
     params = {
         "keywords": keywords,
         "start": 0,
@@ -56,8 +56,7 @@ async def search_linkedin_guest(
     }
     if location:
         params["location"] = location
-    if experience_level:
-        params["f_E"] = experience_level
+    # Guest search often returns empty when f_E is set; filter experience locally.
 
     try:
         async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers=BROWSER_HEADERS) as client:
@@ -78,13 +77,20 @@ async def search_linkedin_guest(
     for card in cards[1:]:
         urn = re.search(r"urn:li:jobPosting:(\d+)", card)
         title = re.search(r'base-search-card__title[^>]*>(.*?)</', card, re.DOTALL)
+        if not title:
+            title = re.search(r'class="sr-only">\s*(.*?)\s*</span>', card, re.DOTALL)
         company = re.search(r'base-search-card__subtitle[^>]*>(.*?)</', card, re.DOTALL)
         loc = re.search(r'job-search-card__location[^>]*>(.*?)</', card, re.DOTALL)
-        href = re.search(r'href="(https://www\.linkedin\.com/jobs/view/[^"]+)"', card)
-        if not urn or not title:
+        href = re.search(
+            r'href="(https://(?:www|in)\.linkedin\.com/jobs/view/[^"]+)"',
+            card,
+        )
+        if not urn:
+            continue
+        title_text = _clean(re.sub(r"<[^>]+>", "", title.group(1))) if title else ""
+        if not title_text:
             continue
         job_id = urn.group(1)
-        title_text = _clean(re.sub(r"<[^>]+>", "", title.group(1)))
         company_text = _clean(re.sub(r"<[^>]+>", "", company.group(1))) if company else "Unknown"
         loc_text = _clean(re.sub(r"<[^>]+>", "", loc.group(1))) if loc else location or None
         url = href.group(1).split("?")[0] if href else f"https://www.linkedin.com/jobs/view/{job_id}"
@@ -103,6 +109,7 @@ async def search_linkedin_guest(
         )
         if len(jobs) >= limit:
             break
+    logger.info("LinkedIn guest parsed %d jobs for %r in %r", len(jobs), keywords, location)
     return jobs
 
 
