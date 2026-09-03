@@ -145,6 +145,12 @@ async def ensure_schema() -> None:
         )
         await conn.execute(
             text(
+                "ALTER TABLE job_preferences ADD COLUMN IF NOT EXISTS "
+                "include_fresher BOOLEAN NOT NULL DEFAULT false"
+            )
+        )
+        await conn.execute(
+            text(
                 "ALTER TABLE candidate_profiles ADD COLUMN IF NOT EXISTS "
                 "beat_scrape_interval_minutes INTEGER"
             )

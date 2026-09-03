@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, func, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, func, text
 from sqlalchemy.dialects.postgresql import JSON, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -30,6 +30,9 @@ class JobPreference(Base):
     required_skills: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     min_experience_years: Mapped[int | None] = mapped_column(Integer, nullable=True)
     max_experience_years: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    include_fresher: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

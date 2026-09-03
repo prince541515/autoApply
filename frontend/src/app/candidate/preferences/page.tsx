@@ -62,6 +62,7 @@ export default function PreferencesPage() {
   const [workMode, setWorkMode] = useState<string>("Any");
   const [minExp, setMinExp] = useState("");
   const [maxExp, setMaxExp] = useState("");
+  const [includeFresher, setIncludeFresher] = useState(true);
   const [requiredSkills, setRequiredSkills] = useState<string[]>([]);
   const [industries, setIndustries] = useState<string[]>(["Any"]);
   const [excludedCompanies, setExcludedCompanies] = useState<string[]>([]);
@@ -85,6 +86,7 @@ export default function PreferencesPage() {
         setWorkMode(pref.work_mode ?? "Any");
         setMinExp(pref.min_experience_years?.toString() ?? "");
         setMaxExp(pref.max_experience_years?.toString() ?? "");
+        setIncludeFresher(pref.include_fresher ?? true);
         setRequiredSkills(pref.required_skills ?? []);
         setIndustries(
           pref.industry
@@ -121,6 +123,7 @@ export default function PreferencesPage() {
       industry: industries,
       min_experience_years: minExp ? Number(minExp) : null,
       max_experience_years: maxExp ? Number(maxExp) : null,
+      include_fresher: includeFresher,
     };
 
     try {
@@ -387,6 +390,32 @@ export default function PreferencesPage() {
                   onChange={(e) => setMaxExp(e.target.value)}
                 />
               </div>
+            </div>
+            <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-border/70 px-3 py-3">
+              <div>
+                <Label htmlFor="fresher-toggle" className="text-sm">
+                  Include fresher / junior roles
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Also scrape intern, trainee, junior developer, and junior engineer jobs.
+                </p>
+              </div>
+              <Switch
+                id="fresher-toggle"
+                checked={includeFresher}
+                onCheckedChange={(checked) => {
+                  setIncludeFresher(checked);
+                  if (!checked) return;
+                  setRoles((prev) => {
+                    const extras = [
+                      "Junior Developer",
+                      "Junior Engineer",
+                      "Junior Software Engineer",
+                    ];
+                    return [...prev, ...extras.filter((role) => !prev.includes(role))];
+                  });
+                }}
+              />
             </div>
           </CardContent>
         </Card>

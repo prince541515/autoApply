@@ -27,6 +27,7 @@ class PreferenceRequest(BaseModel):
     required_skills: list[str] | None = None
     min_experience_years: int | None = None
     max_experience_years: int | None = None
+    include_fresher: bool = False
     industry: str | list[str] | None = None
 
     @field_validator("industry", mode="before")
@@ -50,6 +51,7 @@ class PreferenceResponse(BaseModel):
     required_skills: list | None
     min_experience_years: int | None
     max_experience_years: int | None
+    include_fresher: bool = False
     industry: str | None = None
 
     model_config = {"from_attributes": True}

@@ -176,6 +176,7 @@ export interface JobPreference {
     required_skills: string[];
   min_experience_years: number | null;
   max_experience_years: number | null;
+  include_fresher?: boolean;
   industry?: string | null;
 }
 

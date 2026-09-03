@@ -36,7 +36,7 @@ from app.services.portal_adapters.public_search import (
 
 logger = logging.getLogger(__name__)
 
-MAX_QUERIES = 4
+MAX_QUERIES = 8
 JOBS_PER_QUERY = 15
 SCRAPE_TIMEOUT_SECONDS = 45
 PORTAL_SEARCH_TIMEOUT_SECONDS = 12
@@ -70,6 +70,8 @@ def _pref_search_extras(prefs: list[JobPreference]) -> dict:
             extras["min_experience_years"] = pref.min_experience_years
         if pref.max_experience_years is not None:
             extras["max_experience_years"] = pref.max_experience_years
+        if getattr(pref, "include_fresher", False):
+            extras["include_fresher"] = True
         if pref.min_salary is not None:
             extras["salary"] = pref.min_salary
             extras["salary_min"] = pref.min_salary
@@ -83,10 +85,14 @@ def _pref_search_extras(prefs: list[JobPreference]) -> dict:
     )
 
     extras["experience"] = naukri_experience_filter(
-        extras.get("min_experience_years"), extras.get("max_experience_years")
+        extras.get("min_experience_years"),
+        extras.get("max_experience_years"),
+        include_fresher=bool(extras.get("include_fresher")),
     )
     extras["experience_level"] = linkedin_experience_filter(
-        extras.get("min_experience_years"), extras.get("max_experience_years")
+        extras.get("min_experience_years"),
+        extras.get("max_experience_years"),
+        include_fresher=bool(extras.get("include_fresher")),
     )
     return extras
 
@@ -98,7 +104,11 @@ def _build_search_queries(prefs: list[JobPreference]) -> list[tuple[str, str]]:
             roles.extend(r.strip() for r in pref.roles if isinstance(r, str) and r.strip())
     if not roles:
         roles = default_roles_for_industries(collect_industries(prefs))
-    roles = list(dict.fromkeys(roles))[:4]
+    if any(getattr(pref, "include_fresher", False) for pref in prefs):
+        from app.services.experience_filter import expand_roles_for_fresher
+
+        roles = expand_roles_for_fresher(roles)
+    roles = list(dict.fromkeys(roles))[:8]
     locations = search_locations_from_prefs(prefs)[:4]
     queries: list[tuple[str, str]] = []
     for location in locations:
@@ -114,6 +124,11 @@ def _build_search_queries(prefs: list[JobPreference]) -> list[tuple[str, str]]:
 
 
 def _keywords_for_role(role: str, extras: dict) -> str:
+    lower = role.lower()
+    if extras.get("include_fresher") and any(
+        token in lower for token in ("junior", "fresher", "trainee", "intern", "entry")
+    ):
+        return role
     skills = extras.get("skill_keywords") or []
     extra = " ".join(str(skill) for skill in skills[:2] if skill)
     return f"{role} {extra}".strip() if extra else role

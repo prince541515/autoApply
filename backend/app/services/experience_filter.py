@@ -22,6 +22,53 @@ YEAR_OF_EXP = re.compile(
     re.IGNORECASE,
 )
 
+ENTRY_LEVEL_TITLE = re.compile(
+    r"\b(fresher|intern(ship)?|trainee|graduate|campus|entry[- ]level|"
+    r"junior|jr\.?|associate)\b",
+    re.I,
+)
+
+FRESHER_SEARCH_ROLES = [
+    "Junior Developer",
+    "Junior Engineer",
+    "Junior Software Engineer",
+    "Junior Software Developer",
+    "Junior Frontend Developer",
+    "Junior Backend Developer",
+    "Associate Software Engineer",
+    "Graduate Engineer Trainee",
+    "Software Engineer Fresher",
+    "Entry Level Software Engineer",
+]
+
+
+def is_entry_level_title(title: str | None) -> bool:
+    return bool(title and ENTRY_LEVEL_TITLE.search(title))
+
+
+def expand_roles_for_fresher(roles: list[str]) -> list[str]:
+    expanded: list[str] = []
+    seen: set[str] = set()
+
+    def add(role: str) -> None:
+        clean = role.strip()
+        key = clean.lower()
+        if not clean or key in seen:
+            return
+        seen.add(key)
+        expanded.append(clean)
+
+    for role in roles:
+        add(role)
+        lower = role.lower()
+        if not lower.startswith("junior "):
+            add(f"Junior {role}")
+        if "engineer" in lower and "developer" not in lower:
+            add(role.replace("Engineer", "Developer").replace("engineer", "developer"))
+    for role in FRESHER_SEARCH_ROLES:
+        add(role)
+    return expanded
+
 # Typical minimum years implied by seniority in the job title.
 SENIORITY_RULES: list[tuple[re.Pattern[str], int]] = [
     (re.compile(r"\b(intern(ship)?|trainee|fresher|graduate|campus)\b", re.I), 0),
@@ -116,23 +163,35 @@ def _safe_description(job: Any) -> str:
     return getattr(job, "description", None) or ""
 
 
-def job_matches_experience(job: Any, pref_min: int | None, pref_max: int | None) -> bool:
+def job_matches_experience(
+    job: Any,
+    pref_min: int | None,
+    pref_max: int | None,
+    include_fresher: bool = False,
+) -> bool:
+    title = getattr(job, "title", None)
+    if include_fresher and is_entry_level_title(title):
+        return True
     return job_fits_experience(
-        getattr(job, "title", None),
+        title,
         _safe_description(job),
         pref_min,
         pref_max,
     )
 
 
-def linkedin_experience_filter(pref_min: int | None, pref_max: int | None) -> str:
+def linkedin_experience_filter(
+    pref_min: int | None,
+    pref_max: int | None,
+    include_fresher: bool = False,
+) -> str:
     """LinkedIn f_E codes: 1 intern, 2 entry, 3 associate, 4 mid-senior."""
-    if pref_min is None and pref_max is None:
+    if pref_min is None and pref_max is None and not include_fresher:
         return ""
     max_years = 20 if pref_max is None else pref_max
-    min_years = 0 if pref_min is None else pref_min
+    min_years = 0 if include_fresher or pref_min is None else pref_min
     codes: list[str] = []
-    if min_years <= 1 and max_years >= 0:
+    if include_fresher or (min_years <= 1 and max_years >= 0):
         codes.extend(["1", "2"])
     if max_years >= 2:
         codes.append("3")
@@ -143,9 +202,11 @@ def linkedin_experience_filter(pref_min: int | None, pref_max: int | None) -> st
     return ",".join(dict.fromkeys(codes))
 
 
-def naukri_experience_filter(pref_min: int | None, pref_max: int | None) -> str:
-    if pref_min is None and pref_max is None:
+def naukri_experience_filter(
+    pref_min: int | None, pref_max: int | None, include_fresher: bool = False
+) -> str:
+    if pref_min is None and pref_max is None and not include_fresher:
         return ""
-    lo = 0 if pref_min is None else pref_min
+    lo = 0 if include_fresher or pref_min is None else pref_min
     hi = 20 if pref_max is None else pref_max
     return f"{lo}-{hi}"

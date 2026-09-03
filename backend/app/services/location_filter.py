@@ -161,6 +161,11 @@ def build_preference_filter(prefs: list[JobPreference]) -> dict:
                 if max_exp is None
                 else max(max_exp, pref.max_experience_years)
             )
+    include_fresher = any(getattr(pref, "include_fresher", False) for pref in prefs)
+    if include_fresher:
+        from app.services.experience_filter import expand_roles_for_fresher
+
+        roles = expand_roles_for_fresher(roles)
     return {
         "roles": roles,
         "locations": locations,
@@ -168,6 +173,7 @@ def build_preference_filter(prefs: list[JobPreference]) -> dict:
         "work_mode": work_mode,
         "min_exp": min_exp,
         "max_exp": max_exp,
+        "include_fresher": include_fresher,
         "industries": collect_industries(prefs),
     }
 
@@ -178,9 +184,13 @@ def job_matches_pref_filter(job: JobListing | ScrapedJob, filt: dict) -> bool:
     if not job_matches_industries(job.title, description, industries):
         return False
     roles = filt.get("roles") or []
+    include_fresher = bool(filt.get("include_fresher"))
     if roles and (not industries or "Any" in industries):
-        if score_role_match(job.title, roles) < 0.2:
-            return False
+        from app.services.experience_filter import is_entry_level_title
+
+        if not (include_fresher and is_entry_level_title(job.title)):
+            if score_role_match(job.title, roles) < 0.2:
+                return False
     excluded = filt.get("excluded") or []
     if excluded:
         company = (job.company or "").lower()
@@ -188,7 +198,12 @@ def job_matches_pref_filter(job: JobListing | ScrapedJob, filt: dict) -> bool:
             return False
     from app.services.experience_filter import job_matches_experience
 
-    if not job_matches_experience(job, filt.get("min_exp"), filt.get("max_exp")):
+    if not job_matches_experience(
+        job,
+        filt.get("min_exp"),
+        filt.get("max_exp"),
+        include_fresher=include_fresher,
+    ):
         return False
     return job_matches_location(job.location, filt.get("locations") or [], filt.get("work_mode"))
 
