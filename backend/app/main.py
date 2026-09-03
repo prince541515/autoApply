@@ -60,6 +60,17 @@ _COLLECTION_PATHS = frozenset(
 )
 
 
+def _normalize_api_path(path: str) -> str:
+    if path != "/" and path.endswith("/"):
+        stripped = path.rstrip("/") or "/"
+        if stripped in _COLLECTION_PATHS:
+            return f"{stripped}/"
+        return stripped
+    if path in _COLLECTION_PATHS:
+        return f"{path}/"
+    return path
+
+
 class _CollectionSlashMiddleware:
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -67,12 +78,12 @@ class _CollectionSlashMiddleware:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "http":
             path = scope.get("path") or ""
-            if path in _COLLECTION_PATHS:
+            normalized = _normalize_api_path(path)
+            if normalized != path:
                 scope = dict(scope)
-                slashed = f"{path}/"
-                scope["path"] = slashed
+                scope["path"] = normalized
                 if isinstance(scope.get("raw_path"), (bytes, bytearray)):
-                    scope["raw_path"] = slashed.encode("ascii")
+                    scope["raw_path"] = normalized.encode("ascii")
         await self.app(scope, receive, send)
 
 
