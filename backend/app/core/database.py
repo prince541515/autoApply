@@ -3,11 +3,12 @@ from collections.abc import AsyncGenerator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 from app.core.db_urls import database_needs_ssl
 
-# Neon pooler (PgBouncer) rejects prepared statements; disable the asyncpg cache.
+# Neon pooler (PgBouncer) rejects prepared statements and closes idle clients.
 _is_neon_pooler = "-pooler." in settings.DATABASE_URL
 _connect_args: dict = {}
 if _is_neon_pooler:
@@ -16,14 +17,21 @@ if database_needs_ssl(settings.DATABASE_URL):
     _connect_args["ssl"] = True
 _connect_args["timeout"] = 10
 
-engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=False,
-    pool_pre_ping=not _is_neon_pooler,
-    pool_size=5,
-    max_overflow=10,
-    connect_args=_connect_args,
-)
+_engine_kwargs: dict = {
+    "echo": False,
+    "connect_args": _connect_args,
+}
+if _is_neon_pooler:
+    _engine_kwargs["poolclass"] = NullPool
+else:
+    _engine_kwargs.update(
+        pool_pre_ping=True,
+        pool_size=5,
+        max_overflow=10,
+        pool_recycle=300,
+    )
+
+engine = create_async_engine(settings.DATABASE_URL, **_engine_kwargs)
 
 
 async_session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
