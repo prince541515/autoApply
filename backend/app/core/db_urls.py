@@ -19,7 +19,7 @@ def to_async_database_url(url: str) -> str:
 
 
 def to_sync_database_url(url: str) -> str:
-    value = to_async_database_url(url).replace("postgresql+asyncpg://", "postgresql://", 1)
+    value = to_async_database_url(url).replace("postgresql+asyncpg://", "postgresql+psycopg2://", 1)
     return value
 
 
