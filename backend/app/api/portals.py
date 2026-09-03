@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -32,7 +33,7 @@ class PortalResponse(BaseModel):
     candidate_id: UUID
     portal: str
     is_active: bool
-    last_synced: str | None
+    last_synced: datetime | None
 
     model_config = {"from_attributes": True}
 
