@@ -2,7 +2,17 @@ import axios, { type AxiosError, type InternalAxiosRequestConfig } from "axios";
 import { getAccessToken, getRefreshToken, setTokens, clearTokens } from "@/lib/auth";
 import type { AuthTokens } from "@/types";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+function apiBaseUrl(): string {
+  const direct = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
+  if (typeof window === "undefined") {
+    return direct;
+  }
+  // Browser calls same origin; Next/Vercel rewrites /backend to Railway.
+  // That avoids ISP DNS failures for *.up.railway.app.
+  return "/backend";
+}
+
+const API_URL = apiBaseUrl();
 
 const api = axios.create({
   baseURL: API_URL,
@@ -107,11 +117,10 @@ api.interceptors.response.use(
 export function getApiErrorMessage(err: unknown, fallback: string): string {
   const axiosErr = err as AxiosError<{ detail?: unknown }>;
   const code = axiosErr.code;
-  if (
-    code === "ERR_NETWORK" ||
-    code === "ECONNABORTED" ||
-    axiosErr.message === "Network Error"
-  ) {
+  if (code === "ECONNABORTED") {
+    return "Request timed out. Try again in a moment.";
+  }
+  if (code === "ERR_NETWORK" || axiosErr.message === "Network Error") {
     return "Cannot reach AutoApply servers right now. Wait a moment and try again.";
   }
   const detail = axiosErr.response?.data?.detail;

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -260,13 +260,12 @@ async def get_job(
 
 @router.post("/scrape-now", response_model=ScrapeResponse)
 async def trigger_scrape(
+    background_tasks: BackgroundTasks,
     portal: str | None = None,
     posted_within_hours: int | None = Query(None, ge=1, le=744),
     current_user: User = Depends(require_active_candidate),
     db: AsyncSession = Depends(get_db),
 ) -> ScrapeResponse:
-    import asyncio
-
     from app.core.scrape_quota import default_daily_limit, quota_snapshot, try_consume_scrape
     from app.core.sync_database import get_sync_db
     from app.services.scraper import scrape_for_candidate
@@ -296,21 +295,23 @@ async def trigger_scrape(
     await db.flush()
     candidate_id = str(profile.id)
 
-    def _run() -> dict:
+    def _run() -> None:
         sync_db = get_sync_db()
         try:
-            return scrape_for_candidate(sync_db, candidate_id, portal, posted_within_hours, source="scrape_now")
+            scrape_for_candidate(
+                sync_db, candidate_id, portal, posted_within_hours, source="scrape_now"
+            )
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).exception("Background scrape failed")
         finally:
             sync_db.close()
 
-    result = await asyncio.to_thread(_run)
-    if result.get("error"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["error"])
-
-    new_jobs = int(result.get("new_jobs") or 0)
+    background_tasks.add_task(_run)
     return ScrapeResponse(
-        message=f"Found {new_jobs} new job{'s' if new_jobs != 1 else ''}",
-        new_jobs=new_jobs,
+        message="Fetching jobs in the background. The list will update in a few seconds.",
+        new_jobs=0,
         remaining=consumed["remaining"],
         limit=consumed["limit"],
         used=consumed["used"],

@@ -310,7 +310,7 @@ export default function CandidateJobsPage() {
       if (portalFilter && portalFilter !== "all") params.portal = portalFilter;
       const { data } = await api.post<ScrapeResponse>("/jobs/scrape-now", null, {
         params,
-        timeout: 90000,
+        timeout: 20000,
       });
       if (typeof data.remaining === "number" && typeof data.limit === "number") {
         setQuota({
@@ -321,12 +321,13 @@ export default function CandidateJobsPage() {
         });
       }
       toast.success({
-        title: data.message || "Scrape complete",
-        description:
-          data.new_jobs > 0
-            ? "Matched jobs have been refreshed."
-            : "No new listings this run. Try again shortly.",
+        title: "Fetching jobs",
+        description: data.message || "The list will refresh in a few seconds.",
       });
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 2500));
+        await fetchJobs({ silent: true });
+      }
       await fetchJobs({ silent: false });
     } catch (err: unknown) {
       const status = (err as { response?: { status?: number } })?.response?.status;
